@@ -10,6 +10,7 @@ import MealEntry from './pages/MealEntry'
 import Workouts from './pages/Workouts'
 import Progress from './pages/Progress'
 import Settings from './pages/Settings'
+import Import from './pages/Import'
 import './index.css'
 
 function ProtectedRoute({ children }) {
@@ -30,6 +31,7 @@ function App() {
             <Route path="workouts" element={<Workouts />} />
             <Route path="progress" element={<Progress />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="import" element={<Import />} />
           </Route>
         </Routes>
       </BrowserRouter>

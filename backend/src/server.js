@@ -14,6 +14,7 @@ const goalRoutes = require('./routes/goals');
 const dashboardRoutes = require('./routes/dashboard');
 const templateRoutes = require('./routes/templates');
 const exportRoutes = require('./routes/export');
+const importRoutes = require('./routes/import');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +44,7 @@ app.use('/goals', goalRoutes);
 app.use('/dashboard', dashboardRoutes);
 app.use('/templates', templateRoutes);
 app.use('/export', exportRoutes);
+app.use('/import', importRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
