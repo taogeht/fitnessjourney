@@ -8,6 +8,7 @@ const navItems = [
     { to: '/meals/add', label: 'Add Meal', icon: '🍽️' },
     { to: '/workouts', label: 'Workouts', icon: '💪' },
     { to: '/progress', label: 'Progress', icon: '📈' },
+    { to: '/sleep', label: 'Sleep', icon: '😴' },
     { to: '/import', label: 'Import', icon: '📥' },
     { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];

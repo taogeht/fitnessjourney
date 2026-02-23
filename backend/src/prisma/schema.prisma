@@ -32,10 +32,13 @@ model DailyLog {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user        User         @relation(fields: [userId], references: [id])
-  meals       Meal[]
-  workouts    Workout[]
-  supplements Supplement[]
+  user          User          @relation(fields: [userId], references: [id])
+  meals         Meal[]
+  workouts      Workout[]
+  supplements   Supplement[]
+  sleep         SleepLog?
+  activityRings ActivityRings?
+  importLog     ImportLog?
 
   @@unique([userId, date])
   @@index([date])
@@ -73,6 +76,7 @@ model MealComponent {
   proteinG  Float?   @map("protein_g")
   carbsG    Float?   @map("carbs_g")
   fatG      Float?   @map("fat_g")
+  fibreG    Float?   @map("fibre_g")
   createdAt DateTime @default(now()) @map("created_at")
 
   meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
@@ -92,6 +96,7 @@ model Workout {
   avgHeartRate   Int?     @map("avg_heart_rate")
   maxHeartRate   Int?     @map("max_heart_rate")
   distanceKm     Float?   @map("distance_km")
+  avgPace        String?  @map("avg_pace")
   effortLevel    Int?     @map("effort_level") // 1-5
   notes          String?
   createdAt      DateTime @default(now()) @map("created_at")
@@ -158,4 +163,60 @@ model MealTemplate {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("meal_templates")
+}
+
+model SleepLog {
+  id           String   @id @default(uuid())
+  dailyLogId   String   @unique @map("daily_log_id")
+  date         DateTime @db.Date
+  bedTime      String?  @map("bed_time")
+  wakeTime     String?  @map("wake_time")
+  totalMins    Int      @map("total_mins")
+  awakeMins    Int?     @map("awake_mins")
+  remMins      Int?     @map("rem_mins")
+  coreMins     Int?     @map("core_mins")
+  deepMins     Int?     @map("deep_mins")
+  deepSleepPct Float?   @map("deep_sleep_pct")
+  remPct       Float?   @map("rem_pct")
+  qualityScore Float?   @map("quality_score")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  dailyLog DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+
+  @@map("sleep_logs")
+}
+
+model ActivityRings {
+  id             String   @id @default(uuid())
+  dailyLogId     String   @unique @map("daily_log_id")
+  moveCal        Int?     @map("move_cal")
+  moveGoal       Int?     @map("move_goal")
+  exerciseMins   Int?     @map("exercise_mins")
+  exerciseGoal   Int?     @map("exercise_goal")
+  standHrs       Int?     @map("stand_hrs")
+  standGoal      Int?     @map("stand_goal")
+  stepCount      Int?     @map("step_count")
+  stepDistanceKm Float?   @map("step_distance_km")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  dailyLog DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+
+  @@map("activity_rings")
+}
+
+model ImportLog {
+  id            String    @id @default(uuid())
+  dailyLogId    String?   @unique @map("daily_log_id")
+  date          DateTime  @db.Date
+  importedAt    DateTime  @default(now()) @map("imported_at")
+  mealsCount    Int?      @map("meals_count")
+  workoutsCount Int?      @map("workouts_count")
+  status        String
+  rawJson       Json?     @map("raw_json")
+  errorMessage  String?   @map("error_message")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  dailyLog DailyLog? @relation(fields: [dailyLogId], references: [id])
+
+  @@map("import_logs")
 }

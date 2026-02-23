@@ -11,6 +11,7 @@ import Workouts from './pages/Workouts'
 import Progress from './pages/Progress'
 import Settings from './pages/Settings'
 import Import from './pages/Import'
+import Sleep from './pages/Sleep'
 import './index.css'
 
 function ProtectedRoute({ children }) {
@@ -32,6 +33,7 @@ function App() {
             <Route path="progress" element={<Progress />} />
             <Route path="settings" element={<Settings />} />
             <Route path="import" element={<Import />} />
+            <Route path="sleep" element={<Sleep />} />
           </Route>
         </Routes>
       </BrowserRouter>

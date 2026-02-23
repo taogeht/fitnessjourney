@@ -1,13 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../api/client';
 
 export default function Import() {
     const [raw, setRaw] = useState('');
     const [parsed, setParsed] = useState(null);
     const [errors, setErrors] = useState([]);
-    const [status, setStatus] = useState('idle'); // idle/validated/importing/done/conflict/error
+    const [status, setStatus] = useState('idle');
     const [result, setResult] = useState(null);
     const [conflictId, setConflictId] = useState(null);
+    const [history, setHistory] = useState([]);
+
+    useEffect(() => {
+        api.get('/import/history').then(r => setHistory(r.data)).catch(() => { });
+    }, []);
 
     const handleFile = (e) => {
         const file = e.target?.files?.[0] || e.dataTransfer?.files?.[0];
@@ -213,6 +218,32 @@ export default function Import() {
                             </div>
                         </div>
                     )}
+
+                    {/* Sleep */}
+                    {preview.sleep && (
+                        <div className="p-4 rounded-xl bg-purple-900/10 border border-purple-800/20">
+                            <p className="text-sm font-medium text-surface-200 mb-2">😴 Sleep</p>
+                            <div className="flex gap-4 text-sm">
+                                <span>{Math.floor(preview.sleep.total_mins / 60)}h {preview.sleep.total_mins % 60}m total</span>
+                                <span className="text-purple-400 font-medium">🟣 Deep: {preview.sleep.deep_mins}m ({preview.sleep.total_mins ? Math.round((preview.sleep.deep_mins / preview.sleep.total_mins) * 100) : 0}%)</span>
+                                <span className="text-blue-400">REM: {preview.sleep.rem_mins}m</span>
+                                <span className="text-blue-300">Core: {preview.sleep.core_mins}m</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Activity Rings */}
+                    {preview.activity_rings && (
+                        <div className="p-4 rounded-xl bg-surface-800/50">
+                            <p className="text-sm font-medium text-surface-200 mb-2">⌚ Activity Rings</p>
+                            <div className="flex gap-4 text-sm">
+                                {preview.activity_rings.move_cal && <span className="text-red-400">🔴 Move: {preview.activity_rings.move_cal}/{preview.activity_rings.move_goal || 720} cal</span>}
+                                {preview.activity_rings.exercise_mins != null && <span className="text-green-400">🟢 Exercise: {preview.activity_rings.exercise_mins}/{preview.activity_rings.exercise_goal || 45}m</span>}
+                                {preview.activity_rings.stand_hrs != null && <span className="text-blue-400">🔵 Stand: {preview.activity_rings.stand_hrs}/{preview.activity_rings.stand_goal || 12}h</span>}
+                            </div>
+                            {preview.steps && <p className="text-xs text-surface-200 mt-2">👟 {preview.steps.count?.toLocaleString()} steps • {preview.steps.distance_km}km</p>}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -224,6 +255,8 @@ export default function Import() {
                         <span>🍽️ {result.mealsCreated} meals</span>
                         <span>🏃 {result.workoutsCreated} workouts</span>
                         <span>💊 {result.supplementsCreated} supplements</span>
+                        {result.sleepLogged && <span>😴 Sleep logged</span>}
+                        {result.activityLogged && <span>⌚ Activity rings</span>}
                         {result.weightLogged && <span>⚖️ Weight logged</span>}
                     </div>
                 </div>
@@ -251,6 +284,28 @@ export default function Import() {
                     Reset
                 </button>
             </div>
+
+            {/* Import History */}
+            {history.length > 0 && (
+                <div className="bg-surface-900 border border-surface-800 rounded-2xl p-6">
+                    <h2 className="text-lg font-semibold mb-4">Import History</h2>
+                    <div className="space-y-2">
+                        {history.map(h => (
+                            <div key={h.id} className="flex items-center justify-between p-3 rounded-xl bg-surface-800/50">
+                                <div className="flex items-center gap-3">
+                                    <span className={h.status === 'success' ? 'text-green-400' : 'text-red-400'}>{h.status === 'success' ? '✓' : '✗'}</span>
+                                    <span className="font-medium">{new Date(h.date).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex gap-3 text-xs text-surface-200">
+                                    {h.mealsCount != null && <span>🍽️ {h.mealsCount}</span>}
+                                    {h.workoutsCount != null && <span>🏃 {h.workoutsCount}</span>}
+                                    <span>{new Date(h.importedAt).toLocaleString()}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
