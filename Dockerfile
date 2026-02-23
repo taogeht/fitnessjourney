@@ -24,4 +24,4 @@ RUN mkdir -p /app/uploads/meals /app/uploads/photos
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=src/prisma/schema.prisma && node src/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=src/prisma/schema.prisma && node src/utils/seed.js && node src/server.js"]
