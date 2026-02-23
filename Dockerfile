@@ -13,6 +13,9 @@ RUN npm ci --only=production
 
 COPY backend/ .
 
+# Generate Prisma client
+RUN npx prisma generate --schema=src/prisma/schema.prisma
+
 # Copy frontend build into backend's public folder
 COPY --from=frontend-build /app/frontend/dist ./public
 
