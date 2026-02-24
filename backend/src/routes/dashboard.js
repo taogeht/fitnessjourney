@@ -92,7 +92,8 @@ router.get('/weekly', async (req, res) => {
             },
             include: {
                 meals: true,
-                workouts: true
+                workouts: true,
+                supplements: true
             },
             orderBy: { date: 'asc' }
         });
@@ -100,14 +101,16 @@ router.get('/weekly', async (req, res) => {
         const days = logs.map(log => {
             const calories = log.meals.reduce((sum, m) => sum + (m.calories || 0), 0);
             const protein = log.meals.reduce((sum, m) => sum + (m.proteinG || 0), 0);
+            const carbs = log.meals.reduce((sum, m) => sum + (m.carbsG || 0), 0);
+            const fat = log.meals.reduce((sum, m) => sum + (m.fatG || 0), 0);
+            const fibre = log.meals.reduce((sum, m) => sum + (m.fibreG || 0), 0);
             const activeCalories = log.workouts.reduce((sum, w) => sum + (w.activeCalories || 0), 0);
             const workoutMins = log.workouts.reduce((sum, w) => sum + (w.durationMins || 0), 0);
 
             return {
                 date: log.date,
                 weight: log.weightKg,
-                calories,
-                protein,
+                calories, protein, carbs, fat, fibre,
                 activeCalories,
                 netCalories: calories - activeCalories,
                 workoutMins,
@@ -115,18 +118,32 @@ router.get('/weekly', async (req, res) => {
             };
         });
 
-        const avgCalories = days.length > 0 ? days.reduce((sum, d) => sum + d.calories, 0) / days.length : 0;
-        const avgProtein = days.length > 0 ? days.reduce((sum, d) => sum + d.protein, 0) / days.length : 0;
+        const n = days.length || 1;
+        const sum = (key) => days.reduce((s, d) => s + (d[key] || 0), 0);
+
+        const weightData = await prisma.bodyMetric.findMany({
+            where: { userId: req.userId, date: { gte: startDate, lte: endDate } },
+            orderBy: { date: 'asc' },
+            select: { date: true, weightKg: true }
+        });
 
         res.json({
-            startDate,
-            endDate,
-            days,
+            startDate, endDate, days, weightData,
+            daysLogged: days.length,
             averages: {
-                calories: Math.round(avgCalories),
-                protein: Math.round(avgProtein)
+                calories: Math.round(sum('calories') / n),
+                protein: Math.round(sum('protein') / n),
+                carbs: Math.round(sum('carbs') / n),
+                fat: Math.round(sum('fat') / n),
+                fibre: Math.round(sum('fibre') / n),
+                activeCalories: Math.round(sum('activeCalories') / n),
+                netCalories: Math.round(sum('netCalories') / n)
             },
-            totalWorkouts: days.reduce((sum, d) => sum + d.workoutCount, 0)
+            totals: {
+                workoutMins: sum('workoutMins'),
+                workoutCount: sum('workoutCount'),
+                activeCalories: Math.round(sum('activeCalories'))
+            }
         });
     } catch (err) {
         console.error('Dashboard weekly error:', err);
@@ -164,24 +181,109 @@ router.get('/monthly', async (req, res) => {
             select: { date: true, weightKg: true }
         });
 
-        const days = logs.map(log => ({
-            date: log.date,
-            calories: log.meals.reduce((sum, m) => sum + (m.calories || 0), 0),
-            protein: log.meals.reduce((sum, m) => sum + (m.proteinG || 0), 0),
-            workoutCount: log.workouts.length
-        }));
+        const days = logs.map(log => {
+            const calories = log.meals.reduce((sum, m) => sum + (m.calories || 0), 0);
+            const protein = log.meals.reduce((sum, m) => sum + (m.proteinG || 0), 0);
+            const carbs = log.meals.reduce((sum, m) => sum + (m.carbsG || 0), 0);
+            const fat = log.meals.reduce((sum, m) => sum + (m.fatG || 0), 0);
+            const fibre = log.meals.reduce((sum, m) => sum + (m.fibreG || 0), 0);
+            const activeCalories = log.workouts.reduce((sum, w) => sum + (w.activeCalories || 0), 0);
+            const workoutMins = log.workouts.reduce((sum, w) => sum + (w.durationMins || 0), 0);
+            return {
+                date: log.date,
+                calories, protein, carbs, fat, fibre,
+                activeCalories, netCalories: calories - activeCalories,
+                workoutMins, workoutCount: log.workouts.length
+            };
+        });
+
+        const n = days.length || 1;
+        const sum = (key) => days.reduce((s, d) => s + (d[key] || 0), 0);
 
         res.json({
-            startDate,
-            endDate,
-            days,
-            weightData,
+            startDate, endDate, days, weightData,
             daysLogged: days.length,
-            totalWorkouts: days.reduce((sum, d) => sum + d.workoutCount, 0)
+            averages: {
+                calories: Math.round(sum('calories') / n),
+                protein: Math.round(sum('protein') / n),
+                carbs: Math.round(sum('carbs') / n),
+                fat: Math.round(sum('fat') / n),
+                fibre: Math.round(sum('fibre') / n),
+                activeCalories: Math.round(sum('activeCalories') / n),
+                netCalories: Math.round(sum('netCalories') / n)
+            },
+            totals: {
+                workoutMins: sum('workoutMins'),
+                workoutCount: sum('workoutCount'),
+                activeCalories: Math.round(sum('activeCalories'))
+            }
         });
     } catch (err) {
         console.error('Dashboard monthly error:', err);
         res.status(500).json({ error: 'Failed to fetch monthly dashboard' });
+    }
+});
+
+// GET /dashboard/total — all-time stats
+router.get('/total', async (req, res) => {
+    try {
+        const logs = await prisma.dailyLog.findMany({
+            where: { userId: req.userId },
+            include: { meals: true, workouts: true },
+            orderBy: { date: 'asc' }
+        });
+
+        const weightData = await prisma.bodyMetric.findMany({
+            where: { userId: req.userId },
+            orderBy: { date: 'asc' },
+            select: { date: true, weightKg: true }
+        });
+
+        const goals = await prisma.goal.findMany({ where: { userId: req.userId } });
+
+        const days = logs.map(log => {
+            const calories = log.meals.reduce((sum, m) => sum + (m.calories || 0), 0);
+            const protein = log.meals.reduce((sum, m) => sum + (m.proteinG || 0), 0);
+            const carbs = log.meals.reduce((sum, m) => sum + (m.carbsG || 0), 0);
+            const fat = log.meals.reduce((sum, m) => sum + (m.fatG || 0), 0);
+            const fibre = log.meals.reduce((sum, m) => sum + (m.fibreG || 0), 0);
+            const activeCalories = log.workouts.reduce((sum, w) => sum + (w.activeCalories || 0), 0);
+            const workoutMins = log.workouts.reduce((sum, w) => sum + (w.durationMins || 0), 0);
+            return {
+                date: log.date,
+                calories, protein, carbs, fat, fibre,
+                activeCalories, netCalories: calories - activeCalories,
+                workoutMins, workoutCount: log.workouts.length
+            };
+        });
+
+        const n = days.length || 1;
+        const sum = (key) => days.reduce((s, d) => s + (d[key] || 0), 0);
+
+        const firstDate = logs.length > 0 ? logs[0].date : null;
+        const lastDate = logs.length > 0 ? logs[logs.length - 1].date : null;
+
+        res.json({
+            firstDate, lastDate, days, weightData, goals,
+            daysLogged: days.length,
+            averages: {
+                calories: Math.round(sum('calories') / n),
+                protein: Math.round(sum('protein') / n),
+                carbs: Math.round(sum('carbs') / n),
+                fat: Math.round(sum('fat') / n),
+                fibre: Math.round(sum('fibre') / n),
+                activeCalories: Math.round(sum('activeCalories') / n),
+                netCalories: Math.round(sum('netCalories') / n)
+            },
+            totals: {
+                workoutMins: sum('workoutMins'),
+                workoutCount: sum('workoutCount'),
+                activeCalories: Math.round(sum('activeCalories'))
+            }
+        });
+    } catch (err) {
+        console.error('Dashboard total error:', err);
+        res.status(500).json({ error: 'Failed to fetch total dashboard' });
     }
 });
 
