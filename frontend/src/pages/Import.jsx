@@ -22,10 +22,32 @@ export default function Import() {
         reader.readAsText(file);
     };
 
+    // Auto-wrap single items (bare workout, supplement, meal) into full structure
+    const normalizeData = (data) => {
+        // Single workout object with a "type" field but no "workouts" array
+        if (data.type && !data.workouts && !data.nutrition && !data.supplements) {
+            return { date: data.date, workouts: [data] };
+        }
+        // Single supplement object
+        if (data.name && data.dose_mg !== undefined && !data.supplements) {
+            return { date: data.date, supplements: [data] };
+        }
+        // Single meal object
+        if (data.meal_type && data.name && !data.nutrition) {
+            return { date: data.date, nutrition: { meals: [data] } };
+        }
+        return data;
+    };
+
     const handleParse = (text) => {
         setErrors([]); setResult(null); setConflictId(null);
         try {
-            const data = JSON.parse(text);
+            let data = JSON.parse(text);
+            data = normalizeData(data);
+            // Auto-fill today's date if missing
+            if (!data.date) {
+                data.date = new Date().toISOString().split('T')[0];
+            }
             const errs = validate(data);
             setParsed(data);
             if (errs.length > 0) { setErrors(errs); setStatus('error'); }
@@ -35,7 +57,6 @@ export default function Import() {
 
     const validate = (data) => {
         const errs = [];
-        if (!data.date) errs.push('Missing "date" field (e.g. "2026-02-24")');
         if (data.date && isNaN(new Date(data.date))) errs.push('Invalid date format');
         if (data.nutrition?.meals) {
             data.nutrition.meals.forEach((m, i) => {
@@ -52,12 +73,12 @@ export default function Import() {
         return errs;
     };
 
-    const doImport = async (overwrite = false) => {
+    const doImport = async (mode = 'create') => {
         setStatus('importing');
         try {
-            const url = overwrite ? '/import/daily/overwrite' : '/import/daily';
-            const res = await api.post(url, parsed);
-            setResult(res.data);
+            const urlMap = { create: '/import/daily', overwrite: '/import/daily/overwrite', merge: '/import/daily/merge' };
+            const res = await api.post(urlMap[mode], parsed);
+            setResult({ ...res.data, mode });
             setStatus('done');
         } catch (err) {
             if (err.response?.status === 409) {
@@ -82,7 +103,7 @@ export default function Import() {
         <div className="space-y-6 max-w-3xl">
             <div>
                 <h1 className="text-2xl font-bold">Import Daily Log</h1>
-                <p className="text-surface-200 mt-1">Paste the JSON from your Claude chat to log everything at once</p>
+                <p className="text-surface-200 mt-1">Paste JSON to log a full day or add individual items throughout the day</p>
             </div>
 
             {/* Drop zone */}
@@ -126,9 +147,10 @@ export default function Import() {
             {status === 'conflict' && (
                 <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-2xl p-5">
                     <p className="font-semibold text-yellow-400 mb-2">📅 Log already exists for {parsed.date}</p>
-                    <p className="text-yellow-300 text-sm mb-4">Do you want to overwrite the existing data?</p>
+                    <p className="text-yellow-300 text-sm mb-4">Add to the existing log, or replace it entirely?</p>
                     <div className="flex gap-3">
-                        <button onClick={() => doImport(true)} className="px-6 py-2 rounded-xl bg-yellow-600 hover:bg-yellow-500 text-white font-medium transition-all">Overwrite</button>
+                        <button onClick={() => doImport('merge')} className="px-6 py-2 rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-medium transition-all">Merge (add to existing)</button>
+                        <button onClick={() => doImport('overwrite')} className="px-6 py-2 rounded-xl bg-yellow-600/50 hover:bg-yellow-600 text-white font-medium transition-all">Overwrite all</button>
                         <button onClick={reset} className="px-6 py-2 rounded-xl bg-surface-800 border border-surface-700 text-surface-200 hover:bg-surface-700 transition-all">Cancel</button>
                     </div>
                 </div>
@@ -250,11 +272,13 @@ export default function Import() {
             {/* Success */}
             {status === 'done' && result && (
                 <div className="bg-accent-500/10 border border-accent-500/20 rounded-2xl p-5">
-                    <p className="font-semibold text-accent-400 mb-2">✅ Import Successful!</p>
+                    <p className="font-semibold text-accent-400 mb-2">
+                        ✅ {result.mode === 'merge' ? 'Merged into existing log!' : 'Import Successful!'}
+                    </p>
                     <div className="flex flex-wrap gap-4 text-sm text-accent-300">
-                        <span>🍽️ {result.mealsCreated} meals</span>
-                        <span>🏃 {result.workoutsCreated} workouts</span>
-                        <span>💊 {result.supplementsCreated} supplements</span>
+                        {result.mealsCreated > 0 && <span>🍽️ {result.mealsCreated} meals</span>}
+                        {result.workoutsCreated > 0 && <span>🏃 {result.workoutsCreated} workouts</span>}
+                        {result.supplementsCreated > 0 && <span>💊 {result.supplementsCreated} supplements</span>}
                         {result.sleepLogged && <span>😴 Sleep logged</span>}
                         {result.activityLogged && <span>⌚ Activity rings</span>}
                         {result.weightLogged && <span>⚖️ Weight logged</span>}
@@ -266,7 +290,7 @@ export default function Import() {
             <div className="flex gap-3">
                 {status === 'validated' && (
                     <button
-                        onClick={() => doImport(false)}
+                        onClick={() => doImport('create')}
                         className="flex-1 py-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold hover:from-primary-500 hover:to-primary-400 transition-all shadow-lg shadow-primary-600/30"
                     >
                         Import Daily Log

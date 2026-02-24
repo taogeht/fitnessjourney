@@ -19,7 +19,7 @@ router.post('/daily', async (req, res) => {
         });
         if (existing) {
             return res.status(409).json({
-                error: 'Log for this date already exists. Use /import/daily/overwrite to replace.',
+                error: 'Log for this date already exists. Use merge to add, or overwrite to replace.',
                 date: data.date, id: existing.id
             });
         }
@@ -56,6 +56,187 @@ router.post('/daily/overwrite', async (req, res) => {
         res.json({ success: true, overwritten: !!existing, date: data.date, ...result });
     } catch (err) {
         console.error('Import overwrite error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /import/daily/merge — add to existing day (incremental import)
+router.post('/daily/merge', async (req, res) => {
+    try {
+        const data = req.body;
+        if (!data.date) return res.status(400).json({ error: 'date is required' });
+
+        const date = new Date(data.date);
+        const userId = req.userId;
+
+        // Find or create daily log
+        let log = await prisma.dailyLog.findUnique({
+            where: { userId_date: { userId, date } }
+        });
+
+        const isNew = !log;
+        if (!log) {
+            const meta = data.meta || {};
+            log = await prisma.dailyLog.create({
+                data: {
+                    userId, date,
+                    weightKg: meta.weight_kg ? parseFloat(meta.weight_kg) : null,
+                    wakeTime: meta.wake_time || null,
+                    sleepTime: meta.sleep_time || null,
+                    notes: meta.notes || null
+                }
+            });
+        } else if (data.meta) {
+            // Update meta fields if provided
+            const meta = data.meta;
+            const updates = {};
+            if (meta.weight_kg !== undefined) updates.weightKg = parseFloat(meta.weight_kg);
+            if (meta.wake_time !== undefined) updates.wakeTime = meta.wake_time;
+            if (meta.sleep_time !== undefined) updates.sleepTime = meta.sleep_time;
+            if (meta.notes !== undefined) updates.notes = meta.notes;
+            if (Object.keys(updates).length > 0) {
+                await prisma.dailyLog.update({ where: { id: log.id }, data: updates });
+            }
+        }
+
+        // Append workouts
+        let workoutsCreated = 0;
+        for (const w of (data.workouts || [])) {
+            await prisma.workout.create({
+                data: {
+                    dailyLogId: log.id,
+                    type: w.type || 'other',
+                    startTime: w.start_time || null,
+                    endTime: w.end_time || null,
+                    durationMins: w.duration_mins ? parseInt(w.duration_mins) : null,
+                    activeCalories: w.active_calories ? parseFloat(w.active_calories) : null,
+                    totalCalories: w.total_calories ? parseFloat(w.total_calories) : null,
+                    avgHeartRate: w.avg_heart_rate ? parseInt(w.avg_heart_rate) : null,
+                    maxHeartRate: w.max_heart_rate ? parseInt(w.max_heart_rate) : null,
+                    distanceKm: w.distance_km ? parseFloat(w.distance_km) : null,
+                    avgPace: w.avg_pace || null,
+                    effortLevel: w.effort_level ? parseInt(w.effort_level) : null,
+                    notes: w.notes || null
+                }
+            });
+            workoutsCreated++;
+        }
+
+        // Append meals
+        let mealsCreated = 0;
+        for (const meal of (data.nutrition?.meals || [])) {
+            await prisma.meal.create({
+                data: {
+                    dailyLogId: log.id,
+                    mealType: meal.meal_type || 'snack',
+                    name: meal.name || 'Unnamed meal',
+                    calories: meal.calories ? parseFloat(meal.calories) : null,
+                    proteinG: meal.protein_g ? parseFloat(meal.protein_g) : null,
+                    carbsG: meal.carbs_g ? parseFloat(meal.carbs_g) : null,
+                    fatG: meal.fat_g ? parseFloat(meal.fat_g) : null,
+                    fibreG: meal.fibre_g ? parseFloat(meal.fibre_g) : null,
+                    notes: meal.notes || null,
+                    components: meal.components ? {
+                        create: meal.components.map(c => ({
+                            name: c.name,
+                            weightG: c.weight_g ? parseFloat(c.weight_g) : null,
+                            calories: c.calories ? parseFloat(c.calories) : null,
+                            proteinG: c.protein_g ? parseFloat(c.protein_g) : null,
+                            carbsG: c.carbs_g ? parseFloat(c.carbs_g) : null,
+                            fatG: c.fat_g ? parseFloat(c.fat_g) : null,
+                            fibreG: c.fibre_g ? parseFloat(c.fibre_g) : null
+                        }))
+                    } : undefined
+                }
+            });
+            mealsCreated++;
+        }
+
+        // Append supplements
+        let supplementsCreated = 0;
+        for (const s of (data.supplements || [])) {
+            await prisma.supplement.create({
+                data: {
+                    dailyLogId: log.id,
+                    name: s.name, doseMg: s.dose_mg ? parseFloat(s.dose_mg) : null,
+                    takenAt: s.taken_at || null, notes: s.notes || null
+                }
+            });
+            supplementsCreated++;
+        }
+
+        // Upsert sleep (replace if exists)
+        let sleepLogged = false;
+        if (data.sleep && data.sleep.total_mins) {
+            const s = data.sleep;
+            const deepPct = s.total_mins ? Math.round((s.deep_mins / s.total_mins) * 100) : null;
+            const remPct = s.total_mins ? Math.round((s.rem_mins / s.total_mins) * 100) : null;
+            const existing = await prisma.sleepLog.findUnique({ where: { dailyLogId: log.id } });
+            if (existing) await prisma.sleepLog.delete({ where: { id: existing.id } });
+            await prisma.sleepLog.create({
+                data: {
+                    dailyLogId: log.id, date,
+                    bedTime: s.bed_time || null, wakeTime: s.wake_time || null,
+                    totalMins: parseInt(s.total_mins),
+                    awakeMins: s.awake_mins != null ? parseInt(s.awake_mins) : null,
+                    remMins: s.rem_mins != null ? parseInt(s.rem_mins) : null,
+                    coreMins: s.core_mins != null ? parseInt(s.core_mins) : null,
+                    deepMins: s.deep_mins != null ? parseInt(s.deep_mins) : null,
+                    deepSleepPct: deepPct, remPct: remPct
+                }
+            });
+            sleepLogged = true;
+        }
+
+        // Upsert activity rings (replace if exists)
+        let activityLogged = false;
+        if (data.activity_rings) {
+            const a = data.activity_rings;
+            const existing = await prisma.activityRings.findUnique({ where: { dailyLogId: log.id } });
+            if (existing) await prisma.activityRings.delete({ where: { id: existing.id } });
+            await prisma.activityRings.create({
+                data: {
+                    dailyLogId: log.id,
+                    moveCal: a.move_cal != null ? parseInt(a.move_cal) : null,
+                    moveGoal: a.move_goal != null ? parseInt(a.move_goal) : null,
+                    exerciseMins: a.exercise_mins != null ? parseInt(a.exercise_mins) : null,
+                    exerciseGoal: a.exercise_goal != null ? parseInt(a.exercise_goal) : null,
+                    standHrs: a.stand_hrs != null ? parseInt(a.stand_hrs) : null,
+                    standGoal: a.stand_goal != null ? parseInt(a.stand_goal) : null,
+                    stepCount: data.steps?.count != null ? parseInt(data.steps.count) : null,
+                    stepDistanceKm: data.steps?.distance_km != null ? parseFloat(data.steps.distance_km) : null
+                }
+            });
+            activityLogged = true;
+        }
+
+        // Weight as body metric
+        if (data.meta?.weight_kg) {
+            await prisma.bodyMetric.create({
+                data: { userId, date, weightKg: parseFloat(data.meta.weight_kg), notes: 'Auto-logged from daily import (merge)' }
+            });
+        }
+
+        // Import log (not linked to dailyLogId if one already exists to avoid unique constraint)
+        await prisma.importLog.create({
+            data: {
+                dailyLogId: isNew ? log.id : null,
+                date,
+                mealsCount: mealsCreated,
+                workoutsCount: workoutsCreated,
+                status: 'success',
+                rawJson: data
+            }
+        });
+
+        res.json({
+            success: true, merged: !isNew, date: data.date,
+            logId: log.id, mealsCreated, workoutsCreated, supplementsCreated,
+            sleepLogged, activityLogged,
+            weightLogged: !!data.meta?.weight_kg
+        });
+    } catch (err) {
+        console.error('Import merge error:', err);
         res.status(500).json({ error: err.message });
     }
 });
